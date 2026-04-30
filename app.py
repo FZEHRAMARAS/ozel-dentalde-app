@@ -494,6 +494,60 @@ init_db()
 st.markdown('<div class="logo-wrap"><img src="data:image/png;base64,{}"></div>'.format(__import__("base64").b64encode(open("dentalde_logo.png", "rb").read()).decode()), unsafe_allow_html=True)
 st.markdown('<div class="clinic-title"><span class="line1">ÖZEL DENTALDE ÇAYYOLU</span><span class="line2">AĞIZ VE DİŞ SAĞLIĞI POLİKLİNİĞİ</span></div>', unsafe_allow_html=True)
 
+
+# ---------------- AUTH ----------------
+def check_login():
+    # Streamlit Cloud'da bu bilgiler App settings > Secrets içine girilecek.
+    try:
+        allowed_username = st.secrets["APP_USERNAME"]
+        allowed_password = st.secrets["APP_PASSWORD"]
+    except Exception:
+        st.error("Giriş bilgileri tanımlı değil. Streamlit Cloud > App settings > Secrets içine APP_USERNAME ve APP_PASSWORD ekle.")
+        st.stop()
+
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if st.session_state["authenticated"]:
+        with st.sidebar:
+            if st.button("Çıkış Yap"):
+                st.session_state["authenticated"] = False
+                st.rerun()
+        return
+
+    st.markdown("""
+    <div style="
+        max-width: 420px;
+        margin: 40px auto;
+        background: white;
+        border: 2px solid #111;
+        border-radius: 18px;
+        padding: 22px;
+        box-shadow: 0 3px 12px rgba(0,0,0,.08);
+    ">
+        <h2 style="text-align:center; color:#111;">Özel Dentalde Çayyolu</h2>
+        <p style="text-align:center;">Yetkili kullanıcı girişi</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("login_form"):
+        username = st.text_input("Kullanıcı Adı")
+        password = st.text_input("Şifre", type="password")
+        login = st.form_submit_button("Giriş Yap")
+
+    if login:
+        if username == allowed_username and password == allowed_password:
+            st.session_state["authenticated"] = True
+            st.success("Giriş başarılı.")
+            st.rerun()
+        else:
+            st.error("Kullanıcı adı veya şifre hatalı.")
+
+    st.stop()
+
+check_login()
+
+
 MENU = [
     "1 Hasta Kayıt",
     "2 Haftalık Program",
