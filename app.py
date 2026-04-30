@@ -566,37 +566,102 @@ elif sayfa == "7 Gelir-Gider":
 # ---------------- 8 TDB ----------------
 elif sayfa == "8 TDB İşlemleri":
     st.header("TDB İşlemleri")
+
+    st.info("Excel yüklerken 200+ satır için toplu yükleme kullanılır. Aynı listeyi tekrar yüklüyorsan önce eski TDB kayıtlarını temizle.")
+
+    def parse_money(x):
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return 0.0
+        s = str(x).replace("₺", "").replace("TL", "").replace(" ", "").strip()
+        # 1.650,50 veya 1,650.50 ayrımı
+        if "," in s and "." in s:
+            if s.rfind(",") > s.rfind("."):
+                s = s.replace(".", "").replace(",", ".")
+            else:
+                s = s.replace(",", "")
+        elif "," in s:
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            # 1.650 gibi binlik nokta olabilir
+            parts = s.split(".")
+            if len(parts) > 1 and all(len(p) == 3 for p in parts[1:]):
+                s = s.replace(".", "")
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
+    def parse_int(x, default=30):
+        try:
+            if pd.isna(x):
+                return default
+            return int(float(str(x).strip()))
+        except Exception:
+            return default
+
+    def parse_bool(x):
+        s = safe(x).strip().lower()
+        return s in ["evet", "true", "1", "yes", "e"]
+
     uploaded = st.file_uploader("TDB Excel/CSV yükle", type=["csv","xlsx","xls"])
+    temizle = st.checkbox("Yüklemeden önce mevcut TDB işlem listesini temizle", value=False)
+
     if uploaded:
         df = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
-        count = 0
-        for _, r in df.iterrows():
-            cols = {str(c).lower().strip(): c for c in df.columns}
-            def col(*names):
-                for n in names:
-                    if n.lower().strip() in cols:
-                        return cols[n.lower().strip()]
-                return None
-            kod_c = col("kod","id")
-            ad_c = col("işlem adı","islem_adi","islem adı")
-            ucret_c = col("kdv dahil","kdv_dahil_ucret")
-            if not kod_c or not ad_c or not ucret_c:
-                st.error("Kolonlar bulunamadı: Kod/id, İşlem Adı, KDV Dahil")
-                break
-            payload = {
-                "kod": safe(r[kod_c]),
-                "kategori": safe(r[col("kategori")]) if col("kategori") else "",
-                "islem_adi": safe(r[ad_c]),
-                "kdv_dahil_ucret": float(str(r[ucret_c]).replace(".","").replace(",",".").replace("₺","").replace("TL","").strip() or 0),
-                "sure_dk": 30,
-                "dis_no_gerekli": False,
-                "durum": "Aktif"
-            }
-            insert("islemler", payload)
-            count += 1
-        if count:
-            st.success(f"{count} işlem yüklendi.")
-            st.rerun()
+        st.write(f"Okunan satır sayısı: {len(df)}")
+
+        cols = {str(c).lower().strip(): c for c in df.columns}
+        def col(*names):
+            for n in names:
+                if n.lower().strip() in cols:
+                    return cols[n.lower().strip()]
+            return None
+
+        kod_c = col("kod", "id", "sıra no", "sira no")
+        kat_c = col("kategori")
+        ad_c = col("işlem adı", "islem_adi", "islem adı", "işlem_adi")
+        ucret_c = col("kdv dahil", "kdv_dahil_ucret", "kdv dahil ücret", "kdv_dahil_ücret")
+        sure_c = col("tahmini süre (dk)", "sure_dk", "süre", "sure", "süre dk")
+        dis_c = col("diş no gerekli mi?", "dis no gerekli mi?", "dis_no_gerekli", "diş_no_gerekli")
+        durum_c = col("durum")
+
+        if not kod_c or not ad_c or not ucret_c:
+            st.error("Zorunlu kolonlar bulunamadı. Gerekli kolonlar: Kod/id, İşlem Adı, KDV Dahil.")
+            st.write("Bulunan kolonlar:", list(df.columns))
+        else:
+            preview_payload = []
+            for _, r in df.iterrows():
+                kod = safe(r[kod_c]).strip()
+                ad = safe(r[ad_c]).strip()
+                if not kod or kod.lower() == "nan" or not ad:
+                    continue
+                preview_payload.append({
+                    "kod": kod,
+                    "kategori": safe(r[kat_c]).strip() if kat_c else "",
+                    "islem_adi": ad,
+                    "kdv_dahil_ucret": parse_money(r[ucret_c]),
+                    "sure_dk": parse_int(r[sure_c], 30) if sure_c else 30,
+                    "dis_no_gerekli": parse_bool(r[dis_c]) if dis_c else False,
+                    "durum": safe(r[durum_c]).strip() if durum_c else "Aktif"
+                })
+
+            st.write(f"Yüklenecek geçerli işlem sayısı: {len(preview_payload)}")
+            if preview_payload:
+                st.dataframe(pd.DataFrame(preview_payload).head(10), width="stretch", hide_index=True)
+
+            if st.button("TDB listesini toplu yükle"):
+                try:
+                    if temizle:
+                        # Supabase REST delete için filtre gerekir; id > 0 tüm kayıtları siler.
+                        sb.table("islemler").delete().gt("id", 0).execute()
+
+                    # 500 satırın altında tek batch yeterli.
+                    sb.table("islemler").insert(preview_payload).execute()
+                    st.success(f"{len(preview_payload)} işlem toplu yüklendi.")
+                    st.rerun()
+                except Exception as e:
+                    st.error("TDB yükleme sırasında hata oluştu.")
+                    st.exception(e)
 
     st.subheader("Manuel İşlem Ekle")
     with st.form("islem_add"):
