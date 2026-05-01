@@ -33,3 +33,9 @@ Bu sürümde aşağıdaki ana ayarlar koda sabitlenmiştir ve `ayarlar` tablosun
 
 Bu sürümde Haftalık Program yalnızca `randevular` tablosunu gösterir.
 `hasta_islemleri` tablosu cari, tedavi planı ve laboratuvar takibi için kullanılmaya devam eder ancak takvimde ikinci kez görünmez.
+
+
+## Anamnez Risk Hatırlatıcıları
+
+Hasta kayıt ekranına kronik hastalık, kullanılan ilaç ve alerji hızlı seçimleri eklendi.
+Seçimlere göre diyabet, hipertansiyon, kan sulandırıcı, bisfosfonat, lokal anestezik alerjisi vb. için klinik uyarı verir.

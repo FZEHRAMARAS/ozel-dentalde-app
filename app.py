@@ -239,9 +239,93 @@ if sayfa == "1 Hasta Kayıt":
         tc = c1.text_input("T.C.")
         telefon = c2.text_input("Telefon")
         dogum_tarihi = st.date_input("Doğum Tarihi", value=date(1990,1,1))
-        kronik = st.text_area("Kronik Hastalık")
-        ilac = st.text_area("Kullanılan İlaçlar")
-        alerji = st.text_area("Alerji")
+        st.markdown("### Anamnez / Risk Bilgileri")
+
+        kronik_secimler = st.multiselect(
+            "Kronik hastalık hatırlatıcıları",
+            [
+                "Diyabet",
+                "Hipertansiyon",
+                "Kalp hastalığı",
+                "Ritim bozukluğu",
+                "Kalp kapağı / endokardit riski",
+                "Tiroid hastalığı",
+                "Astım",
+                "KOAH",
+                "Epilepsi",
+                "Böbrek hastalığı",
+                "Karaciğer hastalığı",
+                "Kanama / pıhtılaşma bozukluğu",
+                "Osteoporoz",
+                "Romatizmal hastalık",
+                "İmmünsüpresyon",
+                "Gebelik",
+                "Emzirme",
+                "Kanser öyküsü",
+                "Radyoterapi / kemoterapi öyküsü"
+            ]
+        )
+        kronik_not = st.text_area("Kronik hastalık ek notu")
+        kronik = (", ".join(kronik_secimler) + (" | Not: " + kronik_not if kronik_not else "")).strip(" |")
+
+        ilac_secimler = st.multiselect(
+            "Kullanılan ilaç hatırlatıcıları",
+            [
+                "Kan sulandırıcı / antikoagülan",
+                "Aspirin / antiagregan",
+                "Tansiyon ilacı",
+                "Diyabet ilacı / insülin",
+                "Kortizon",
+                "Bisfosfonat / osteoporoz ilacı",
+                "Kemoterapi / immünsüpresif ilaç",
+                "Antidepresan / psikiyatrik ilaç",
+                "Tiroid ilacı",
+                "Astım ilacı",
+                "Düzenli ağrı kesici / NSAİİ",
+                "Doğum kontrol hapı",
+                "Diğer"
+            ]
+        )
+        ilac_not = st.text_area("Kullanılan ilaç ek notu")
+        ilac = (", ".join(ilac_secimler) + (" | Not: " + ilac_not if ilac_not else "")).strip(" |")
+
+        alerji_secimler = st.multiselect(
+            "Alerji hatırlatıcıları",
+            [
+                "Penisilin",
+                "Antibiyotik alerjisi",
+                "Lokal anestezik alerjisi",
+                "Ağrı kesici / NSAİİ alerjisi",
+                "Lateks alerjisi",
+                "İyot / antiseptik alerjisi",
+                "Gıda alerjisi",
+                "Bilinmeyen ilaç alerjisi",
+                "Alerji yok",
+                "Diğer"
+            ]
+        )
+        alerji_not = st.text_area("Alerji ek notu")
+        alerji = (", ".join(alerji_secimler) + (" | Not: " + alerji_not if alerji_not else "")).strip(" |")
+
+        if "Diyabet" in kronik_secimler:
+            st.warning("⚠ Diyabet: enfeksiyon riski, yara iyileşmesi ve randevu öncesi beslenme/ilaç düzeni sorgulanmalı.")
+        if "Hipertansiyon" in kronik_secimler:
+            st.warning("⚠ Hipertansiyon: tansiyon ölçümü ve adrenalinli lokal anestezik kullanımı dikkatle değerlendirilmeli.")
+        if "Kanama / pıhtılaşma bozukluğu" in kronik_secimler or "Kan sulandırıcı / antikoagülan" in ilac_secimler or "Aspirin / antiagregan" in ilac_secimler:
+            st.error("🚨 Kanama riski: cerrahi/çekim öncesi hekim değerlendirmesi ve gerekirse konsültasyon önerilir.")
+        if "Kalp kapağı / endokardit riski" in kronik_secimler:
+            st.warning("⚠ Endokardit riski: işlem öncesi profilaksi gerekliliği hekim tarafından değerlendirilmeli.")
+        if "Bisfosfonat / osteoporoz ilacı" in ilac_secimler:
+            st.error("🚨 Bisfosfonat/osteoporoz ilacı: çekim, implant ve cerrahi işlemlerde osteonekroz riski açısından dikkat.")
+        if "Radyoterapi / kemoterapi öyküsü" in kronik_secimler or "Kemoterapi / immünsüpresif ilaç" in ilac_secimler:
+            st.error("🚨 Onkolojik tedavi/immünsüpresyon: cerrahi ve enfeksiyon riski açısından detaylı değerlendirme gerekir.")
+        if "Lokal anestezik alerjisi" in alerji_secimler:
+            st.error("🚨 Lokal anestezik alerjisi: işlem öncesi alternatif plan ve hekim değerlendirmesi şart.")
+        if "Penisilin" in alerji_secimler or "Antibiyotik alerjisi" in alerji_secimler:
+            st.warning("⚠ Antibiyotik alerjisi: reçete öncesi mutlaka kontrol edilmeli.")
+        if "Lateks alerjisi" in alerji_secimler:
+            st.warning("⚠ Lateks alerjisi: latekssiz eldiven ve malzeme kullanılmalı.")
+
         kanser = st.text_area("Kanser Geçmişi / RT-KT")
         operasyon = st.text_area("Operasyon / Hastane Yatış Geçmişi")
         c3, c4 = st.columns(2)
@@ -278,7 +362,8 @@ if sayfa == "1 Hasta Kayıt":
             <b>{safe(r.get('hasta_adi'))}</b><br>
             Tel: {safe(r.get('telefon'))} | TC: {safe(r.get('tc'))}<br>
             Alerji: {safe(r.get('alerji')) or '-'}<br>
-            Kronik: {safe(r.get('kronik_hastalik')) or '-'}
+            Kronik: {safe(r.get('kronik_hastalik')) or '-'}<br>
+            İlaç: {safe(r.get('kullanilan_ilaclar')) or '-'}
             </div>
             """, unsafe_allow_html=True)
 
@@ -293,13 +378,14 @@ if sayfa == "1 Hasta Kayıt":
             tel2 = st.text_input("Telefon", value=safe(row.get("telefon")))
             alerji2 = st.text_area("Alerji", value=safe(row.get("alerji")))
             kronik2 = st.text_area("Kronik Hastalık", value=safe(row.get("kronik_hastalik")))
+            ilac2 = st.text_area("Kullanılan İlaçlar", value=safe(row.get("kullanilan_ilaclar")))
             c1, c2 = st.columns(2)
             guncelle = c1.form_submit_button("Güncelle")
             sil = c2.form_submit_button("Sil")
 
         if guncelle:
             old_name = safe(row.get("hasta_adi"))
-            update("hastalar", hid, {"hasta_adi": ad2, "telefon": tel2, "alerji": alerji2, "kronik_hastalik": kronik2})
+            update("hastalar", hid, {"hasta_adi": ad2, "telefon": tel2, "alerji": alerji2, "kronik_hastalik": kronik2, "kullanilan_ilaclar": ilac2})
             if old_name != ad2:
                 for table in ["randevular", "hasta_islemleri", "odemeler", "giderler", "laboratuvar"]:
                     rows = sb.table(table).select("*").eq("hasta_adi", old_name).execute().data or []
