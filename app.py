@@ -634,15 +634,18 @@ elif sayfa == "3 Haftalık Program":
 # ---------------- 3 RANDEVU ----------------
 elif sayfa == "4 Randevu Ekle":
     st.header("Randevu Ekle / Düzenle")
+    st.caption("Hasta seçildiğinde yalnızca o hastaya 'Hasta İşlemleri' ekranında atanmış işlemler listelenir.")
+
     hastalar = fetch("hastalar", "hasta_adi")
-    islemler = fetch("islemler", "islem_adi")
+    tum_islemler = fetch("islemler", "islem_adi")
+    hasta_islemleri_all = fetch("hasta_islemleri", "tarih")
     hekimler = get_options("hekim")
     odalar = get_options("oda")
     durumlar = get_options("durum")
 
     if hastalar.empty:
         st.warning("Önce hasta kaydı oluştur.")
-    elif islemler.empty:
+    elif tum_islemler.empty:
         st.warning("Önce TDB işlemi ekle.")
     else:
         with st.form("randevu_form"):
@@ -653,19 +656,65 @@ elif sayfa == "4 Randevu Ekle":
             c3, c4 = st.columns(2)
             hekim = c3.selectbox("Hekim", hekimler)
             oda = c4.selectbox("Clinic", odalar)
-            islemler["secim"] = islemler["id"].astype(str) + " | " + islemler["islem_adi"].astype(str)
-            secenekler = ["İşlem seç"] + islemler["secim"].tolist()
+
+            hasta_atanmis = pd.DataFrame()
+            if not hasta_islemleri_all.empty and "hasta_adi" in hasta_islemleri_all.columns:
+                hasta_atanmis = hasta_islemleri_all[
+                    (hasta_islemleri_all["hasta_adi"] == hasta) &
+                    (hasta_islemleri_all["durum"].fillna("") != "İptal")
+                ].copy()
+
+            if hasta_atanmis.empty:
+                st.warning("Bu hastaya atanmış işlem yok. Önce 'Hasta İşlemleri' sekmesinden işlem ekle.")
+                secenekler = ["İşlem seç"]
+            else:
+                hasta_atanmis["secim"] = (
+                    hasta_atanmis["id"].astype(str) + " | " +
+                    hasta_atanmis["islem_adi"].astype(str) + " | " +
+                    hasta_atanmis["tarih"].astype(str)
+                )
+                secenekler = ["İşlem seç"] + hasta_atanmis["secim"].tolist()
+
             sec = st.selectbox("İşlem", secenekler)
 
             info = None
+            selected_hasta_islem = None
+
             if sec != "İşlem seç":
-                islem_id = int(sec.split(" | ")[0])
-                info = islemler[islemler["id"] == islem_id].iloc[0]
+                hasta_islem_id = int(sec.split(" | ")[0])
+                selected_hasta_islem = hasta_atanmis[hasta_atanmis["id"] == hasta_islem_id].iloc[0]
+
+                islem_id_raw = safe(selected_hasta_islem.get("islem_id"))
+                matched = pd.DataFrame()
+
+                if islem_id_raw and not tum_islemler.empty:
+                    if "kod" in tum_islemler.columns:
+                        matched = tum_islemler[
+                            (tum_islemler["kod"].astype(str) == islem_id_raw) |
+                            (tum_islemler["id"].astype(str) == islem_id_raw)
+                        ]
+                    else:
+                        matched = tum_islemler[tum_islemler["id"].astype(str) == islem_id_raw]
+
+                if not matched.empty:
+                    info = matched.iloc[0]
+                else:
+                    info = selected_hasta_islem
+
                 hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0] if not hastalar.empty else None
                 show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
 
-            dis_no = st.text_input("Diş No")
-            ucret = st.number_input("Ücret", value=float(info.get("kdv_dahil_ucret") or 0) if info is not None else 0.0, step=100.0)
+            dis_no = st.text_input(
+                "Diş No",
+                value=safe(selected_hasta_islem.get("dis_no")) if selected_hasta_islem is not None else ""
+            )
+
+            ucret = st.number_input(
+                "Ücret",
+                value=float(selected_hasta_islem.get("ucret") or info.get("kdv_dahil_ucret") or 0) if info is not None else 0.0,
+                step=100.0
+            )
+
             durum = st.selectbox("Durum", durumlar)
             notlar = st.text_area("Not")
             kaydet = st.form_submit_button("Randevu Kaydet")
@@ -680,18 +729,32 @@ elif sayfa == "4 Randevu Ekle":
                 st.error("Çakışma: Aynı tarih/saat/clinic için randevu var.")
             else:
                 insert("randevular", {
-                    "tarih": str(tarih), "saat": saat, "hasta_adi": hasta, "hekim": hekim,
-                    "oda": oda, "islem_id": str(info.get("kod") or info.get("id")), "islem_adi": info["islem_adi"],
-                    "dis_no": dis_no, "ucret": ucret, "sure_dk": int(info.get("sure_dk") or 30),
-                    "durum": durum, "notlar": notlar
+                    "tarih": str(tarih),
+                    "saat": saat,
+                    "hasta_adi": hasta,
+                    "hekim": hekim,
+                    "oda": oda,
+                    "islem_id": str(info.get("kod") or info.get("islem_id") or info.get("id")),
+                    "islem_adi": info["islem_adi"],
+                    "dis_no": dis_no,
+                    "ucret": ucret,
+                    "sure_dk": int(info.get("sure_dk") or 30),
+                    "durum": durum,
+                    "notlar": notlar
                 })
-                insert("hasta_islemleri", {
-                    "tarih": str(tarih), "saat": saat, "hasta_adi": hasta, "islem_id": str(info.get("kod") or info.get("id")),
-                    "islem_adi": info["islem_adi"], "kategori": safe(info.get("kategori")),
-                    "dis_no": dis_no, "hekim": hekim, "ucret": ucret, "sure_dk": int(info.get("sure_dk") or 30),
-                    "durum": durum, "lab_gidecek": bool(safe(info.get("kategori")) == "Protez"), "notlar": notlar
-                })
-                st.success("Randevu kaydedildi.")
+
+                if selected_hasta_islem is not None:
+                    update("hasta_islemleri", int(selected_hasta_islem["id"]), {
+                        "tarih": str(tarih),
+                        "saat": saat,
+                        "dis_no": dis_no,
+                        "hekim": hekim,
+                        "ucret": ucret,
+                        "durum": durum,
+                        "notlar": notlar
+                    })
+
+                st.success("Randevu kaydedildi ve atanmış hasta işlemi güncellendi.")
                 st.rerun()
 
     r = fetch("randevular", "tarih")
