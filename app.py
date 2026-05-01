@@ -780,7 +780,7 @@ elif sayfa == "4 Randevu Ekle":
             st.rerun()
 
 # ---------------- 4 ISLEMLER ----------------
- elif sayfa == "5 Hasta İşlemleri":
+elif sayfa == "5 Hasta İşlemleri":
     st.header("Hasta İşlemleri")
     hastalar = fetch("hastalar", "hasta_adi")
     islemler = fetch("islemler", "islem_adi")
