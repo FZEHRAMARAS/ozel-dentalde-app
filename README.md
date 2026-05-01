@@ -27,3 +27,9 @@ Bu sürümde aşağıdaki ana ayarlar koda sabitlenmiştir ve `ayarlar` tablosun
 - Laboratuvar, Malzeme, Kira, Personel, Fatura, Diğer
 - Laboratuvar 1
 - Gönderilecek, Gönderildi, Teslim Alındı, Hastaya Takıldı, İptal
+
+
+## Haftalık Program Çift Kayıt Düzeltmesi
+
+Bu sürümde Haftalık Program yalnızca `randevular` tablosunu gösterir.
+`hasta_islemleri` tablosu cari, tedavi planı ve laboratuvar takibi için kullanılmaya devam eder ancak takvimde ikinci kez görünmez.

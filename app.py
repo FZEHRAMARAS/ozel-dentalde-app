@@ -321,27 +321,18 @@ if sayfa == "1 Hasta Kayıt":
 # ---------------- 2 TAKVIM ----------------
 elif sayfa == "2 Haftalık Program":
     st.header("Haftalık Program")
+    st.caption("Bu ekran sadece randevuları gösterir. Hasta işlemleri cari ve laboratuvar takibi için ayrı tutulur; takvimde ikinci kez gösterilmez.")
+
     secilen = st.date_input("Hafta seç", value=date.today())
     bas = monday_of(secilen)
     son = bas + timedelta(days=6)
 
     randevular = sb.table("randevular").select("*").gte("tarih", str(bas)).lte("tarih", str(son)).execute().data or []
-    islemler = sb.table("hasta_islemleri").select("*").gte("tarih", str(bas)).lte("tarih", str(son)).execute().data or []
-    islemler = [x for x in islemler if safe(x.get("saat")) and not x.get("randevu_id")]
 
-    combined = []
-    for x in randevular:
-        x["kaynak"] = "Randevu"
-        combined.append(x)
-    for x in islemler:
-        x["kaynak"] = "Hasta İşlemi"
-        x["oda"] = ""
-        combined.append(x)
-
-    if not combined:
-        st.info("Bu haftada plan yok.")
+    if not randevular:
+        st.info("Bu haftada randevu yok.")
     else:
-        df = pd.DataFrame(combined).sort_values(["tarih","saat"])
+        df = pd.DataFrame(randevular).sort_values(["tarih","saat"])
         for g in [bas + timedelta(days=i) for i in range(7)]:
             st.subheader(g.strftime("%d.%m %A"))
             gd = str(g)
@@ -354,7 +345,7 @@ elif sayfa == "2 Haftalık Program":
                 <b>{safe(row.get('saat'))} - {safe(row.get('hasta_adi'))}</b><br>
                 {safe(row.get('hekim'))} {('| ' + safe(row.get('oda'))) if safe(row.get('oda')) else ''}<br>
                 <b>{safe(row.get('islem_adi'))}</b><br>
-                Kaynak: {safe(row.get('kaynak'))} | Durum: {safe(row.get('durum'))}
+                Durum: {safe(row.get('durum'))}
                 </div>
                 """, unsafe_allow_html=True)
 
