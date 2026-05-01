@@ -213,6 +213,47 @@ def show_islem_risk_warnings(islem_adi, kategori="", hasta_row=None):
     if any(k in anamnez for k in ["penisilin", "antibiyotik alerjisi"]):
         st.warning("⚠ Antibiyotik alerjisi kayıtlı: reçete yazmadan önce kontrol et.")
 
+
+def hasta_risk_ozeti(row):
+    """Hasta kartında gösterilecek kısa risk özeti üretir."""
+    kronik = safe(row.get("kronik_hastalik")).lower()
+    ilac = safe(row.get("kullanilan_ilaclar")).lower()
+    alerji = safe(row.get("alerji")).lower()
+    metin = " ".join([kronik, ilac, alerji])
+
+    riskler = []
+
+    if "diyabet" in metin:
+        riskler.append("⚠ Diyabet")
+    if "hipertansiyon" in metin:
+        riskler.append("⚠ Hipertansiyon")
+    if any(k in metin for k in ["kan sulandırıcı", "antikoagülan", "aspirin", "antiagregan", "kanama"]):
+        riskler.append("🚨 Kanama riski")
+    if any(k in metin for k in ["bisfosfonat", "osteoporoz"]):
+        riskler.append("🚨 Bisfosfonat/osteonekroz riski")
+    if any(k in metin for k in ["radyoterapi", "kemoterapi", "kanser"]):
+        riskler.append("🚨 Onkolojik öykü")
+    if "lokal anestezik" in metin:
+        riskler.append("🚨 Lokal anestezik alerjisi")
+    if any(k in metin for k in ["penisilin", "antibiyotik alerjisi"]):
+        riskler.append("⚠ Antibiyotik alerjisi")
+    if "lateks" in metin:
+        riskler.append("⚠ Lateks alerjisi")
+
+    try:
+        dogum = row.get("dogum_tarihi")
+        if dogum:
+            dt = datetime.strptime(str(dogum), "%Y-%m-%d").date()
+            yas = date.today().year - dt.year - ((date.today().month, date.today().day) < (dt.month, dt.day))
+            if yas < 12:
+                riskler.append("🧒 Pediatrik")
+            elif yas >= 65:
+                riskler.append("👴 Geriatrik")
+    except Exception:
+        pass
+
+    return " | ".join(riskler) if riskler else "Belirgin risk işaretlenmemiş"
+
 # ---------------- AUTH ----------------
 def check_login():
     try:
@@ -266,14 +307,15 @@ ensure_default_ayarlar()
 
 MENU = [
     "1 Hasta Kayıt",
-    "2 Haftalık Program",
-    "3 Randevu Ekle",
-    "4 Hasta İşlemleri",
-    "5 Cari / Ödeme",
-    "6 Laboratuvar",
-    "7 Gelir-Gider",
-    "8 TDB İşlemleri",
-    "9 Ayarlar",
+    "2 Hasta Listesi",
+    "3 Haftalık Program",
+    "4 Randevu Ekle",
+    "5 Hasta İşlemleri",
+    "6 Cari / Ödeme",
+    "7 Laboratuvar",
+    "8 Gelir-Gider",
+    "9 TDB İşlemleri",
+    "10 Ayarlar",
 ]
 
 with st.sidebar:
@@ -471,8 +513,95 @@ if sayfa == "1 Hasta Kayıt":
             st.warning("Hasta ve bağlı kayıtlar silindi.")
             st.rerun()
 
-# ---------------- 2 TAKVIM ----------------
-elif sayfa == "2 Haftalık Program":
+# ---------------- 2 HASTA LISTESI ----------------
+elif sayfa == "2 Hasta Listesi":
+    st.header("Detaylı Hasta Listesi")
+
+    hastalar = fetch("hastalar", "hasta_adi")
+    if hastalar.empty:
+        st.info("Henüz hasta kaydı yok.")
+    else:
+        c1, c2 = st.columns(2)
+        ara = c1.text_input("Hasta adı / telefon / TC ara")
+        risk_filtresi = c2.selectbox(
+            "Risk filtresi",
+            ["Tümü", "Riskli hastalar", "Diyabet", "Hipertansiyon", "Kanama riski", "Alerji", "Onkolojik öykü", "Pediatrik", "Geriatrik"]
+        )
+
+        shown = hastalar.copy()
+
+        if ara:
+            mask = (
+                shown["hasta_adi"].fillna("").str.contains(ara, case=False, na=False) |
+                shown["telefon"].fillna("").str.contains(ara, case=False, na=False) |
+                shown["tc"].fillna("").str.contains(ara, case=False, na=False)
+            )
+            shown = shown[mask]
+
+        def risk_match(row, filtre):
+            ozet = hasta_risk_ozeti(row).lower()
+            metin = " ".join([
+                safe(row.get("kronik_hastalik")),
+                safe(row.get("kullanilan_ilaclar")),
+                safe(row.get("alerji")),
+                safe(row.get("kanser_gecmisi")),
+            ]).lower()
+
+            if filtre == "Tümü":
+                return True
+            if filtre == "Riskli hastalar":
+                return "belirgin risk işaretlenmemiş" not in ozet
+            if filtre == "Diyabet":
+                return "diyabet" in metin
+            if filtre == "Hipertansiyon":
+                return "hipertansiyon" in metin
+            if filtre == "Kanama riski":
+                return any(k in metin for k in ["kan sulandırıcı", "antikoagülan", "aspirin", "antiagregan", "kanama"])
+            if filtre == "Alerji":
+                return bool(safe(row.get("alerji")).strip())
+            if filtre == "Onkolojik öykü":
+                return any(k in metin for k in ["kanser", "radyoterapi", "kemoterapi"])
+            if filtre == "Pediatrik":
+                return "pediatrik" in ozet
+            if filtre == "Geriatrik":
+                return "geriatrik" in ozet
+            return True
+
+        shown = shown[shown.apply(lambda r: risk_match(r, risk_filtresi), axis=1)]
+
+        st.caption(f"Görünen hasta sayısı: {len(shown)} / Toplam: {len(hastalar)}")
+
+        export_df = shown.copy()
+        if not export_df.empty:
+            export_df["risk_ozeti"] = export_df.apply(hasta_risk_ozeti, axis=1)
+            kolonlar = [
+                "hasta_adi", "telefon", "tc", "dogum_tarihi", "risk_ozeti",
+                "kronik_hastalik", "kullanilan_ilaclar", "alerji",
+                "kanser_gecmisi", "operasyon_gecmisi", "hamilelik_durumu",
+                "kanama_pihtilasma", "sistemik_notlar", "notlar"
+            ]
+            kolonlar = [k for k in kolonlar if k in export_df.columns]
+            st.dataframe(export_df[kolonlar], width="stretch", hide_index=True)
+
+        st.subheader("Detaylı Kartlar")
+        for _, r in shown.iterrows():
+            risk = hasta_risk_ozeti(r)
+            st.markdown(f"""
+            <div class="mobile-card">
+            <b>{safe(r.get('hasta_adi'))}</b><br>
+            Tel: {safe(r.get('telefon')) or '-'} | TC: {safe(r.get('tc')) or '-'} | Doğum: {safe(r.get('dogum_tarihi')) or '-'}<br>
+            <b>Risk Özeti:</b> {risk}<br>
+            <b>Kronik:</b> {safe(r.get('kronik_hastalik')) or '-'}<br>
+            <b>İlaç:</b> {safe(r.get('kullanilan_ilaclar')) or '-'}<br>
+            <b>Alerji:</b> {safe(r.get('alerji')) or '-'}<br>
+            <b>Kanser / RT-KT:</b> {safe(r.get('kanser_gecmisi')) or '-'}<br>
+            <b>Operasyon:</b> {safe(r.get('operasyon_gecmisi')) or '-'}<br>
+            <b>Diğer not:</b> {safe(r.get('notlar')) or '-'}
+            </div>
+            """, unsafe_allow_html=True)
+
+# ---------------- 3 TAKVIM ----------------
+elif sayfa == "3 Haftalık Program":
     st.header("Haftalık Program")
     st.caption("Bu ekran sadece randevuları gösterir. Hasta işlemleri cari ve laboratuvar takibi için ayrı tutulur; takvimde ikinci kez gösterilmez.")
 
@@ -503,7 +632,7 @@ elif sayfa == "2 Haftalık Program":
                 """, unsafe_allow_html=True)
 
 # ---------------- 3 RANDEVU ----------------
-elif sayfa == "3 Randevu Ekle":
+elif sayfa == "4 Randevu Ekle":
     st.header("Randevu Ekle / Düzenle")
     hastalar = fetch("hastalar", "hasta_adi")
     islemler = fetch("islemler", "islem_adi")
@@ -525,18 +654,27 @@ elif sayfa == "3 Randevu Ekle":
             hekim = c3.selectbox("Hekim", hekimler)
             oda = c4.selectbox("Clinic", odalar)
             islemler["secim"] = islemler["id"].astype(str) + " | " + islemler["islem_adi"].astype(str)
-            sec = st.selectbox("İşlem", islemler["secim"].tolist())
-            islem_id = int(sec.split(" | ")[0])
-            info = islemler[islemler["id"] == islem_id].iloc[0]
-            hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0] if not hastalar.empty else None
-            show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
+            secenekler = ["İşlem seç"] + islemler["secim"].tolist()
+            sec = st.selectbox("İşlem", secenekler)
+
+            info = None
+            if sec != "İşlem seç":
+                islem_id = int(sec.split(" | ")[0])
+                info = islemler[islemler["id"] == islem_id].iloc[0]
+                hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0] if not hastalar.empty else None
+                show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
+
             dis_no = st.text_input("Diş No")
-            ucret = st.number_input("Ücret", value=float(info.get("kdv_dahil_ucret") or 0), step=100.0)
+            ucret = st.number_input("Ücret", value=float(info.get("kdv_dahil_ucret") or 0) if info is not None else 0.0, step=100.0)
             durum = st.selectbox("Durum", durumlar)
             notlar = st.text_area("Not")
             kaydet = st.form_submit_button("Randevu Kaydet")
 
         if kaydet:
+            if info is None:
+                st.error("Lütfen işlem seç.")
+                st.stop()
+
             conflict = sb.table("randevular").select("*").eq("tarih", str(tarih)).eq("saat", saat).eq("oda", oda).execute().data or []
             if conflict:
                 st.error("Çakışma: Aynı tarih/saat/clinic için randevu var.")
@@ -579,7 +717,7 @@ elif sayfa == "3 Randevu Ekle":
             st.rerun()
 
 # ---------------- 4 ISLEMLER ----------------
-elif sayfa == "4 Hasta İşlemleri":
+elif sayfa == "5 Hasta İşlemleri":
     st.header("Hasta İşlemleri")
     hastalar = fetch("hastalar", "hasta_adi")
     islemler = fetch("islemler", "islem_adi")
@@ -652,7 +790,7 @@ elif sayfa == "4 Hasta İşlemleri":
             st.rerun()
 
 # ---------------- 5 CARI ----------------
-elif sayfa == "5 Cari / Ödeme":
+elif sayfa == "6 Cari / Ödeme":
     st.header("Cari / Ödeme")
     hastalar = fetch("hastalar", "hasta_adi")
     if hastalar.empty:
@@ -681,7 +819,7 @@ elif sayfa == "5 Cari / Ödeme":
         st.dataframe(od, width="stretch", hide_index=True)
 
 # ---------------- 6 LAB ----------------
-elif sayfa == "6 Laboratuvar":
+elif sayfa == "7 Laboratuvar":
     st.header("Laboratuvar")
     labs = get_options("lab")
     durumlar = get_options("lab_durum")
@@ -745,7 +883,7 @@ elif sayfa == "6 Laboratuvar":
             st.rerun()
 
 # ---------------- 7 GELIR GIDER ----------------
-elif sayfa == "7 Gelir-Gider":
+elif sayfa == "8 Gelir-Gider":
     st.header("Gelir-Gider")
     od = fetch("odemeler", "tarih")
     gd = fetch("giderler", "tarih")
@@ -769,7 +907,7 @@ elif sayfa == "7 Gelir-Gider":
     st.dataframe(gd, width="stretch", hide_index=True)
 
 # ---------------- 8 TDB ----------------
-elif sayfa == "8 TDB İşlemleri":
+elif sayfa == "9 TDB İşlemleri":
     st.header("TDB İşlemleri")
 
     st.info("Excel yüklerken 200+ satır için toplu yükleme kullanılır. Aynı listeyi tekrar yüklüyorsan önce eski TDB kayıtlarını temizle.")
@@ -885,7 +1023,7 @@ elif sayfa == "8 TDB İşlemleri":
     st.dataframe(fetch("islemler", "islem_adi"), width="stretch", hide_index=True)
 
 # ---------------- 9 AYARLAR ----------------
-elif sayfa == "9 Ayarlar":
+elif sayfa == "10 Ayarlar":
     st.header("Ayarlar")
     ay = fetch("ayarlar", "grup")
     st.dataframe(ay, width="stretch", hide_index=True)
