@@ -1,5 +1,6 @@
 
 import base64
+import re
 from datetime import date, datetime, timedelta, time
 
 import pandas as pd
@@ -161,6 +162,74 @@ def money(v):
         return f"{float(v or 0):,.2f} TL"
     except Exception:
         return "0.00 TL"
+
+def fmt_date(v):
+    """YYYY-MM-DD tarihini GG/AA/YYYY formatında gösterir."""
+    try:
+        if v is None or safe(v) == "":
+            return ""
+        return pd.to_datetime(v).strftime("%d/%m/%Y")
+    except Exception:
+        return safe(v)
+
+def sort_islemler_by_kod(df):
+    """TDB işlemlerini kod/numara doğal sırasına göre sıralar."""
+    if df.empty or "kod" not in df.columns:
+        return df
+
+    def natural_key(v):
+        s = safe(v).strip()
+        parts = re.split(r"(\d+)", s)
+        key = []
+        for p in parts:
+            if p.isdigit():
+                key.append((0, int(p)))
+            else:
+                key.append((1, p.lower()))
+        return key
+
+    return df.assign(_sort_key=df["kod"].apply(natural_key)).sort_values("_sort_key").drop(columns=["_sort_key"])
+
+@st.dialog("Hasta Detayı")
+def hasta_detay_popup(hasta_adi):
+    rows = sb.table("hastalar").select("*").eq("hasta_adi", hasta_adi).execute().data or []
+    if not rows:
+        st.warning("Hasta bulunamadı.")
+        return
+
+    r = rows[0]
+    st.subheader(safe(r.get("hasta_adi")))
+    st.write(f"**Tel:** {safe(r.get('telefon')) or '-'}")
+    st.write(f"**TC:** {safe(r.get('tc')) or '-'}")
+    st.write(f"**Doğum:** {fmt_date(r.get('dogum_tarihi')) or '-'}")
+    st.write(f"**Risk Özeti:** {hasta_risk_ozeti(r)}")
+    st.write(f"**Kronik:** {safe(r.get('kronik_hastalik')) or '-'}")
+    st.write(f"**İlaç:** {safe(r.get('kullanilan_ilaclar')) or '-'}")
+    st.write(f"**Alerji:** {safe(r.get('alerji')) or '-'}")
+    st.write(f"**Kanser / RT-KT:** {safe(r.get('kanser_gecmisi')) or '-'}")
+    st.write(f"**Operasyon:** {safe(r.get('operasyon_gecmisi')) or '-'}")
+    st.write(f"**Diğer Not:** {safe(r.get('notlar')) or '-'}")
+
+    hi = pd.DataFrame(sb.table("hasta_islemleri").select("*").eq("hasta_adi", hasta_adi).execute().data or [])
+    if not hi.empty:
+        st.markdown("### Hasta İşlemleri")
+        hi = hi.copy()
+        if "tarih" in hi.columns:
+            hi["tarih"] = hi["tarih"].apply(fmt_date)
+        kolonlar = [k for k in ["tarih", "saat", "islem_adi", "hekim", "ucret", "durum", "notlar"] if k in hi.columns]
+        st.dataframe(hi[kolonlar], width="stretch", hide_index=True)
+
+    od = pd.DataFrame(sb.table("odemeler").select("*").eq("hasta_adi", hasta_adi).execute().data or [])
+    if not od.empty:
+        st.markdown("### Ödemeler")
+        od = od.copy()
+        if "tarih" in od.columns:
+            od["tarih"] = od["tarih"].apply(fmt_date)
+        kolonlar = [k for k in ["tarih", "tutar", "odeme_tipi", "aciklama"] if k in od.columns]
+        st.dataframe(od[kolonlar], width="stretch", hide_index=True)
+
+    if st.button("Kapat"):
+        st.rerun()
 
 def show_islem_risk_warnings(islem_adi, kategori="", hasta_row=None):
     """Seçilen işleme ve hasta anamnezine göre klinik risk hatırlatıcıları gösterir."""
@@ -335,7 +404,8 @@ if sayfa == "1 Hasta Kayıt":
             "Doğum Tarihi",
             value=date(2000, 1, 1),
             min_value=date(1900, 1, 1),
-            max_value=date.today()
+            max_value=date.today(),
+            format="DD/MM/YYYY"
         )
 
         yas = date.today().year - dogum_tarihi.year - (
@@ -581,6 +651,8 @@ elif sayfa == "2 Hasta Listesi":
                 "kanama_pihtilasma", "sistemik_notlar", "notlar"
             ]
             kolonlar = [k for k in kolonlar if k in export_df.columns]
+            if "dogum_tarihi" in export_df.columns:
+                export_df["dogum_tarihi"] = export_df["dogum_tarihi"].apply(fmt_date)
             st.dataframe(export_df[kolonlar], width="stretch", hide_index=True)
 
         st.subheader("Detaylı Kartlar")
@@ -589,7 +661,7 @@ elif sayfa == "2 Hasta Listesi":
             st.markdown(f"""
             <div class="mobile-card">
             <b>{safe(r.get('hasta_adi'))}</b><br>
-            Tel: {safe(r.get('telefon')) or '-'} | TC: {safe(r.get('tc')) or '-'} | Doğum: {safe(r.get('dogum_tarihi')) or '-'}<br>
+            Tel: {safe(r.get('telefon')) or '-'} | TC: {safe(r.get('tc')) or '-'} | Doğum: {fmt_date(r.get('dogum_tarihi')) or '-'}<br>
             <b>Risk Özeti:</b> {risk}<br>
             <b>Kronik:</b> {safe(r.get('kronik_hastalik')) or '-'}<br>
             <b>İlaç:</b> {safe(r.get('kullanilan_ilaclar')) or '-'}<br>
@@ -603,9 +675,9 @@ elif sayfa == "2 Hasta Listesi":
 # ---------------- 3 TAKVIM ----------------
 elif sayfa == "3 Haftalık Program":
     st.header("Haftalık Program")
-    st.caption("Bu ekran sadece randevuları gösterir. Hasta işlemleri cari ve laboratuvar takibi için ayrı tutulur; takvimde ikinci kez gösterilmez.")
+    st.caption("Randevu kartındaki 'Hasta Detayı' butonuyla hasta bilgilerini pop-up olarak açabilirsin.")
 
-    secilen = st.date_input("Hafta seç", value=date.today())
+    secilen = st.date_input("Hafta seç", value=date.today(), format="DD/MM/YYYY")
     bas = monday_of(secilen)
     son = bas + timedelta(days=6)
 
@@ -614,22 +686,30 @@ elif sayfa == "3 Haftalık Program":
     if not randevular:
         st.info("Bu haftada randevu yok.")
     else:
-        df = pd.DataFrame(randevular).sort_values(["tarih","saat"])
+        df = pd.DataFrame(randevular).sort_values(["tarih", "saat"])
         for g in [bas + timedelta(days=i) for i in range(7)]:
-            st.subheader(g.strftime("%d.%m %A"))
+            st.subheader(g.strftime("%d/%m %A"))
             gd = str(g)
             rows = df[df["tarih"] == gd]
             if rows.empty:
                 st.caption("Boş")
+
             for _, row in rows.iterrows():
-                st.markdown(f"""
-                <div class="mobile-card">
-                <b>{safe(row.get('saat'))} - {safe(row.get('hasta_adi'))}</b><br>
-                {safe(row.get('hekim'))} {('| ' + safe(row.get('oda'))) if safe(row.get('oda')) else ''}<br>
-                <b>{safe(row.get('islem_adi'))}</b><br>
-                Durum: {safe(row.get('durum'))}
-                </div>
-                """, unsafe_allow_html=True)
+                c1, c2 = st.columns([4, 1])
+                with c1:
+                    st.markdown(f"""
+                    <div class="mobile-card">
+                    <b>{safe(row.get('saat'))} - {safe(row.get('hasta_adi'))}</b><br>
+                    {safe(row.get('hekim'))} {('| ' + safe(row.get('oda'))) if safe(row.get('oda')) else ''}<br>
+                    <b>{safe(row.get('islem_adi'))}</b><br>
+                    Durum: {safe(row.get('durum'))}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                with c2:
+                    if st.button("Hasta Detayı", key=f"hasta_detay_{row.get('id')}"):
+                        hasta_detay_popup(safe(row.get("hasta_adi")))
+
 
 # ---------------- 3 RANDEVU ----------------
 elif sayfa == "4 Randevu Ekle":
@@ -637,7 +717,7 @@ elif sayfa == "4 Randevu Ekle":
     st.caption("Hasta seçildiğinde yalnızca o hastaya 'Hasta İşlemleri' ekranında atanmış işlemler listelenir.")
 
     hastalar = fetch("hastalar", "hasta_adi")
-    tum_islemler = fetch("islemler", "islem_adi")
+    tum_islemler = sort_islemler_by_kod(fetch("islemler", "islem_adi"))
     hasta_islemleri_all = fetch("hasta_islemleri", "tarih")
     hekimler = get_options("hekim")
     odalar = get_options("oda")
@@ -650,7 +730,7 @@ elif sayfa == "4 Randevu Ekle":
     else:
         with st.form("randevu_form"):
             c1, c2 = st.columns(2)
-            tarih = c1.date_input("Tarih", value=date.today())
+            tarih = c1.date_input("Tarih", value=date.today(), format="DD/MM/YYYY")
             saat = c2.selectbox("Saat", make_slots())
             hasta = st.selectbox("Hasta", hastalar["hasta_adi"].tolist())
             c3, c4 = st.columns(2)
@@ -671,7 +751,7 @@ elif sayfa == "4 Randevu Ekle":
                 hasta_atanmis["secim"] = (
                     hasta_atanmis["id"].astype(str) + " | " +
                     hasta_atanmis["islem_adi"].astype(str) + " | " +
-                    hasta_atanmis["tarih"].astype(str)
+                    hasta_atanmis["tarih"].apply(fmt_date).astype(str)
                 )
                 secenekler = ["İşlem seç"] + hasta_atanmis["secim"].tolist()
 
@@ -760,7 +840,7 @@ elif sayfa == "4 Randevu Ekle":
     r = fetch("randevular", "tarih")
     if not r.empty:
         st.subheader("Randevu Düzenle / Sil")
-        r["secim"] = r["id"].astype(str) + " | " + r["tarih"].astype(str) + " " + r["saat"].astype(str) + " | " + r["hasta_adi"].astype(str)
+        r["secim"] = r["id"].astype(str) + " | " + r["tarih"].apply(fmt_date).astype(str) + " " + r["saat"].astype(str) + " | " + r["hasta_adi"].astype(str)
         sec = st.selectbox("Randevu seç", r["secim"].tolist())
         rid = int(sec.split(" | ")[0])
         row = r[r["id"] == rid].iloc[0]
@@ -782,12 +862,9 @@ elif sayfa == "4 Randevu Ekle":
 # ---------------- 4 ISLEMLER ----------------
 elif sayfa == "5 Hasta İşlemleri":
     st.header("Hasta İşlemleri")
+
     hastalar = fetch("hastalar", "hasta_adi")
-    islemler = fetch("islemler", "islem_adi")
-    if not islemler.empty and "kod" in islemler.columns:
-        islemler = islemler.assign(
-            _sort_key=islemler["kod"].astype(str).str.extract(r"(\d+)")[0].fillna(999999).astype(int)
-        ).sort_values("_sort_key").drop(columns=["_sort_key"])
+    islemler = sort_islemler_by_kod(fetch("islemler", "islem_adi"))
     hekimler = get_options("hekim")
 
     if hastalar.empty:
@@ -795,50 +872,60 @@ elif sayfa == "5 Hasta İşlemleri":
     elif islemler.empty:
         st.warning("Önce işlem ekle.")
     else:
-        with st.form("hi_add"):
-            hasta = st.selectbox("Hasta", ["Hasta seç"] + hastalar["hasta_adi"].tolist())
+        hasta = st.selectbox("Hasta", ["Hasta seç"] + hastalar["hasta_adi"].tolist(), key="hi_hasta")
 
-            islemler["secim"] = (
-                islemler["kod"].fillna(islemler["id"].astype(str)).astype(str)
-                + " | " +
-                islemler["islem_adi"].astype(str)
-            )
+        hasta_row = None
+        if hasta != "Hasta seç":
+            hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0]
+            st.markdown(f"""
+            <div class="mobile-card">
+            <b>{safe(hasta_row.get('hasta_adi'))}</b><br>
+            Tel: {safe(hasta_row.get('telefon')) or '-'} | TC: {safe(hasta_row.get('tc')) or '-'} | Doğum: {fmt_date(hasta_row.get('dogum_tarihi')) or '-'}<br>
+            <b>Risk Özeti:</b> {hasta_risk_ozeti(hasta_row)}<br>
+            <b>Alerji:</b> {safe(hasta_row.get('alerji')) or '-'}<br>
+            <b>Kronik:</b> {safe(hasta_row.get('kronik_hastalik')) or '-'}<br>
+            <b>İlaç:</b> {safe(hasta_row.get('kullanilan_ilaclar')) or '-'}
+            </div>
+            """, unsafe_allow_html=True)
 
-            sec = st.selectbox("İşlem", ["İşlem seç"] + islemler["secim"].tolist())
-            hekim = st.selectbox("Hekim", ["Hekim seç"] + hekimler)
-            tarih = st.date_input("Tarih seç", value=date.today(), format="DD/MM/YYYY")
+        if "kod" in islemler.columns:
+            islemler["secim"] = islemler["kod"].fillna(islemler["id"].astype(str)).astype(str) + " | " + islemler["islem_adi"].astype(str)
+        else:
+            islemler["secim"] = islemler["id"].astype(str) + " | " + islemler["islem_adi"].astype(str)
 
-            info = None
-            if sec != "İşlem seç":
-                sec_kod = sec.split(" | ")[0]
+        sec = st.selectbox("İşlem", ["İşlem seç"] + islemler["secim"].tolist(), key="hi_islem")
+        hekim = st.selectbox("Hekim", ["Hekim seç"] + hekimler, key="hi_hekim")
+        tarih = st.date_input("Tarih seç", value=date.today(), format="DD/MM/YYYY", key="hi_tarih")
+
+        info = None
+        if sec != "İşlem seç":
+            sec_kod = sec.split(" | ")[0]
+            if "kod" in islemler.columns:
                 matched = islemler[
                     (islemler["kod"].astype(str) == sec_kod) |
                     (islemler["id"].astype(str) == sec_kod)
                 ]
-                if not matched.empty:
-                    info = matched.iloc[0]
+            else:
+                matched = islemler[islemler["id"].astype(str) == sec_kod]
+            if not matched.empty:
+                info = matched.iloc[0]
 
-            hasta_row = None
-            if hasta != "Hasta seç":
-                hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0]
-                st.info(f"Seçilen hasta risk özeti: {hasta_risk_ozeti(hasta_row)}")
+        if info is not None and hasta_row is not None:
+            show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
 
-            if info is not None and hasta_row is not None:
-                show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
+        saat = st.selectbox("Saat", [""] + make_slots(), key="hi_saat")
+        dis_no = st.text_input("Diş No", key="hi_dis")
+        ucret = st.number_input(
+            "Ücret",
+            value=float(info.get("kdv_dahil_ucret") or 0) if info is not None else 0.0,
+            step=100.0,
+            key="hi_ucret"
+        )
+        durum = st.selectbox("Durum", ["Planlandı", "Başlandı", "Tamamlandı", "İptal"], key="hi_durum")
+        lab = st.checkbox("Laboratuvara gidecek", key="hi_lab")
+        notlar = st.text_area("Not", key="hi_not")
 
-            saat = st.selectbox("Saat", [""] + make_slots())
-            dis_no = st.text_input("Diş No")
-            ucret = st.number_input(
-                "Ücret",
-                value=float(info.get("kdv_dahil_ucret") or 0) if info is not None else 0.0,
-                step=100.0
-            )
-            durum = st.selectbox("Durum", ["Planlandı", "Başlandı", "Tamamlandı", "İptal"])
-            lab = st.checkbox("Laboratuvara gidecek")
-            notlar = st.text_area("Not")
-            kaydet = st.form_submit_button("İşlem Kaydet")
-
-        if kaydet:
+        if st.button("İşlem Kaydet"):
             if hasta == "Hasta seç":
                 st.error("Lütfen hasta seç.")
                 st.stop()
@@ -870,11 +957,10 @@ elif sayfa == "5 Hasta İşlemleri":
     hi = fetch("hasta_islemleri", "tarih")
     if not hi.empty:
         for _, row in hi.sort_values("id", ascending=False).head(30).iterrows():
-            tarih_goster = pd.to_datetime(row.get("tarih")).strftime("%d/%m/%Y") if safe(row.get("tarih")) else ""
             st.markdown(f"""
             <div class="mobile-card">
             <b>{safe(row.get('hasta_adi'))}</b><br>
-            {tarih_goster} {safe(row.get('saat'))} | {safe(row.get('islem_adi'))}<br>
+            {fmt_date(row.get('tarih'))} {safe(row.get('saat'))} | {safe(row.get('islem_adi'))}<br>
             Ücret: {money(row.get('ucret'))} | Durum: {safe(row.get('durum'))}
             </div>
             """, unsafe_allow_html=True)
@@ -916,6 +1002,7 @@ elif sayfa == "5 Hasta İşlemleri":
             delete("hasta_islemleri", iid)
             st.warning("İşlem silindi.")
             st.rerun()
+
 
 # ---------------- 5 CARI ----------------
 elif sayfa == "6 Cari / Ödeme":
@@ -1148,7 +1235,8 @@ elif sayfa == "9 TDB İşlemleri":
         st.success("İşlem kaydedildi.")
         st.rerun()
 
-    st.dataframe(fetch("islemler", "islem_adi"), width="stretch", hide_index=True)
+    tdb_liste = sort_islemler_by_kod(fetch("islemler", "islem_adi"))
+    st.dataframe(tdb_liste, width="stretch", hide_index=True)
 
 # ---------------- 9 AYARLAR ----------------
 elif sayfa == "10 Ayarlar":
