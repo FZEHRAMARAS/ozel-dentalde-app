@@ -780,10 +780,14 @@ elif sayfa == "4 Randevu Ekle":
             st.rerun()
 
 # ---------------- 4 ISLEMLER ----------------
-elif sayfa == "5 Hasta İşlemleri":
+ elif sayfa == "5 Hasta İşlemleri":
     st.header("Hasta İşlemleri")
     hastalar = fetch("hastalar", "hasta_adi")
     islemler = fetch("islemler", "islem_adi")
+    if not islemler.empty and "kod" in islemler.columns:
+        islemler = islemler.assign(
+            _sort_key=islemler["kod"].astype(str).str.extract(r"(\d+)")[0].fillna(999999).astype(int)
+        ).sort_values("_sort_key").drop(columns=["_sort_key"])
     hekimler = get_options("hekim")
 
     if hastalar.empty:
@@ -792,29 +796,73 @@ elif sayfa == "5 Hasta İşlemleri":
         st.warning("Önce işlem ekle.")
     else:
         with st.form("hi_add"):
-            hasta = st.selectbox("Hasta", hastalar["hasta_adi"].tolist())
-            hekim = st.selectbox("Hekim", hekimler)
-            islemler["secim"] = islemler["id"].astype(str) + " | " + islemler["islem_adi"].astype(str)
-            sec = st.selectbox("İşlem", islemler["secim"].tolist())
-            iid = int(sec.split(" | ")[0])
-            info = islemler[islemler["id"] == iid].iloc[0]
-            hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0] if not hastalar.empty else None
-            show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
-            c1, c2 = st.columns(2)
-            tarih = c1.date_input("Tarih", value=date.today())
-            saat = c2.selectbox("Saat", [""] + make_slots())
+            hasta = st.selectbox("Hasta", ["Hasta seç"] + hastalar["hasta_adi"].tolist())
+
+            islemler["secim"] = (
+                islemler["kod"].fillna(islemler["id"].astype(str)).astype(str)
+                + " | " +
+                islemler["islem_adi"].astype(str)
+            )
+
+            sec = st.selectbox("İşlem", ["İşlem seç"] + islemler["secim"].tolist())
+            hekim = st.selectbox("Hekim", ["Hekim seç"] + hekimler)
+            tarih = st.date_input("Tarih seç", value=date.today(), format="DD/MM/YYYY")
+
+            info = None
+            if sec != "İşlem seç":
+                sec_kod = sec.split(" | ")[0]
+                matched = islemler[
+                    (islemler["kod"].astype(str) == sec_kod) |
+                    (islemler["id"].astype(str) == sec_kod)
+                ]
+                if not matched.empty:
+                    info = matched.iloc[0]
+
+            hasta_row = None
+            if hasta != "Hasta seç":
+                hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0]
+                st.info(f"Seçilen hasta risk özeti: {hasta_risk_ozeti(hasta_row)}")
+
+            if info is not None and hasta_row is not None:
+                show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
+
+            saat = st.selectbox("Saat", [""] + make_slots())
             dis_no = st.text_input("Diş No")
-            ucret = st.number_input("Ücret", value=float(info.get("kdv_dahil_ucret") or 0), step=100.0)
+            ucret = st.number_input(
+                "Ücret",
+                value=float(info.get("kdv_dahil_ucret") or 0) if info is not None else 0.0,
+                step=100.0
+            )
             durum = st.selectbox("Durum", ["Planlandı", "Başlandı", "Tamamlandı", "İptal"])
             lab = st.checkbox("Laboratuvara gidecek")
             notlar = st.text_area("Not")
             kaydet = st.form_submit_button("İşlem Kaydet")
+
         if kaydet:
+            if hasta == "Hasta seç":
+                st.error("Lütfen hasta seç.")
+                st.stop()
+            if sec == "İşlem seç" or info is None:
+                st.error("Lütfen işlem seç.")
+                st.stop()
+            if hekim == "Hekim seç":
+                st.error("Lütfen hekim seç.")
+                st.stop()
+
             insert("hasta_islemleri", {
-                "tarih": str(tarih), "saat": saat, "hasta_adi": hasta, "islem_id": str(info.get("kod") or info.get("id")),
-                "islem_adi": info["islem_adi"], "kategori": safe(info.get("kategori")), "dis_no": dis_no,
-                "hekim": hekim, "ucret": ucret, "sure_dk": int(info.get("sure_dk") or 30),
-                "durum": durum, "lab_gidecek": lab, "notlar": notlar
+                "tarih": str(tarih),
+                "saat": saat,
+                "hasta_adi": hasta,
+                "islem_id": str(info.get("kod") or info.get("id")),
+                "islem_adi": info["islem_adi"],
+                "kategori": safe(info.get("kategori")),
+                "dis_no": dis_no,
+                "hekim": hekim,
+                "ucret": ucret,
+                "sure_dk": int(info.get("sure_dk") or 30),
+                "durum": durum,
+                "lab_gidecek": lab,
+                "notlar": notlar
             })
             st.success("İşlem kaydedildi.")
             st.rerun()
@@ -822,10 +870,11 @@ elif sayfa == "5 Hasta İşlemleri":
     hi = fetch("hasta_islemleri", "tarih")
     if not hi.empty:
         for _, row in hi.sort_values("id", ascending=False).head(30).iterrows():
+            tarih_goster = pd.to_datetime(row.get("tarih")).strftime("%d/%m/%Y") if safe(row.get("tarih")) else ""
             st.markdown(f"""
             <div class="mobile-card">
             <b>{safe(row.get('hasta_adi'))}</b><br>
-            {safe(row.get('tarih'))} {safe(row.get('saat'))} | {safe(row.get('islem_adi'))}<br>
+            {tarih_goster} {safe(row.get('saat'))} | {safe(row.get('islem_adi'))}<br>
             Ücret: {money(row.get('ucret'))} | Durum: {safe(row.get('durum'))}
             </div>
             """, unsafe_allow_html=True)
@@ -835,18 +884,34 @@ elif sayfa == "5 Hasta İşlemleri":
         sec = st.selectbox("İşlem seç", hi["secim"].tolist())
         iid = int(sec.split(" | ")[0])
         row = hi[hi["id"] == iid].iloc[0]
+
         with st.form("hi_edit"):
-            saat2 = st.selectbox("Saat", [""] + make_slots(), index=([""]+make_slots()).index(safe(row.get("saat"))) if safe(row.get("saat")) in ([""]+make_slots()) else 0)
-            durum2 = st.selectbox("Durum", ["Planlandı","Başlandı","Tamamlandı","İptal"], index=["Planlandı","Başlandı","Tamamlandı","İptal"].index(row["durum"]) if row["durum"] in ["Planlandı","Başlandı","Tamamlandı","İptal"] else 0)
+            saat2 = st.selectbox(
+                "Saat",
+                [""] + make_slots(),
+                index=([""] + make_slots()).index(safe(row.get("saat"))) if safe(row.get("saat")) in ([""] + make_slots()) else 0
+            )
+            durum2 = st.selectbox(
+                "Durum",
+                ["Planlandı", "Başlandı", "Tamamlandı", "İptal"],
+                index=["Planlandı", "Başlandı", "Tamamlandı", "İptal"].index(row["durum"]) if row["durum"] in ["Planlandı", "Başlandı", "Tamamlandı", "İptal"] else 0
+            )
             ucret2 = st.number_input("Ücret", value=float(row.get("ucret") or 0), step=100.0)
             lab2 = st.checkbox("Laboratuvara gidecek", value=bool(row.get("lab_gidecek")))
             c1, c2 = st.columns(2)
             g = c1.form_submit_button("Güncelle")
             s = c2.form_submit_button("Sil")
+
         if g:
-            update("hasta_islemleri", iid, {"saat": saat2, "durum": durum2, "ucret": ucret2, "lab_gidecek": lab2})
+            update("hasta_islemleri", iid, {
+                "saat": saat2,
+                "durum": durum2,
+                "ucret": ucret2,
+                "lab_gidecek": lab2
+            })
             st.success("İşlem güncellendi.")
             st.rerun()
+
         if s:
             delete("hasta_islemleri", iid)
             st.warning("İşlem silindi.")
