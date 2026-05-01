@@ -174,8 +174,10 @@ def fmt_date(v):
 
 def sort_islemler_by_kod(df):
     """TDB işlemlerini kod/numara doğal sırasına göre sıralar."""
-    if df.empty or "kod" not in df.columns:
+    if df.empty:
         return df
+    if "kod" not in df.columns:
+        return df.sort_values("islem_adi") if "islem_adi" in df.columns else df
 
     def natural_key(v):
         s = safe(v).strip()
