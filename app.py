@@ -83,6 +83,62 @@ def get_options(grup):
     res = sb.table("ayarlar").select("*").eq("grup", grup).order("deger").execute()
     return [r["deger"] for r in (res.data or [])]
 
+
+# ---------------- DEFAULT SETTINGS ----------------
+DEFAULT_AYARLAR = [
+    {"grup": "hekim", "deger": "Dr.Dt. M. Enes MARAŞ", "renk": "#9ACD32"},
+    {"grup": "hekim", "deger": "Dt. S. Deniz MARAŞ", "renk": "#111111"},
+
+    {"grup": "oda", "deger": "Clinic 1", "renk": "#9ACD32"},
+    {"grup": "oda", "deger": "Clinic 2", "renk": "#111111"},
+
+    {"grup": "durum", "deger": "Planlandı", "renk": None},
+    {"grup": "durum", "deger": "Geldi", "renk": None},
+    {"grup": "durum", "deger": "Tamamlandı", "renk": None},
+    {"grup": "durum", "deger": "İptal", "renk": None},
+    {"grup": "durum", "deger": "Ertelendi", "renk": None},
+    {"grup": "durum", "deger": "Ödeme Alındı", "renk": None},
+    {"grup": "durum", "deger": "Ödeme Bekliyor", "renk": None},
+
+    {"grup": "odeme", "deger": "Nakit", "renk": None},
+    {"grup": "odeme", "deger": "Kredi Kartı", "renk": None},
+    {"grup": "odeme", "deger": "Havale/EFT", "renk": None},
+    {"grup": "odeme", "deger": "Parçalı Ödeme", "renk": None},
+
+    {"grup": "gider", "deger": "Laboratuvar", "renk": None},
+    {"grup": "gider", "deger": "Malzeme", "renk": None},
+    {"grup": "gider", "deger": "Kira", "renk": None},
+    {"grup": "gider", "deger": "Personel", "renk": None},
+    {"grup": "gider", "deger": "Fatura", "renk": None},
+    {"grup": "gider", "deger": "Diğer", "renk": None},
+
+    {"grup": "lab", "deger": "Laboratuvar 1", "renk": None},
+
+    {"grup": "lab_durum", "deger": "Gönderilecek", "renk": None},
+    {"grup": "lab_durum", "deger": "Gönderildi", "renk": None},
+    {"grup": "lab_durum", "deger": "Teslim Alındı", "renk": None},
+    {"grup": "lab_durum", "deger": "Hastaya Takıldı", "renk": None},
+    {"grup": "lab_durum", "deger": "İptal", "renk": None},
+]
+
+def ensure_default_ayarlar():
+    """Ana ayarlar silinse bile app açılırken varsayılanları geri yükler."""
+    try:
+        mevcut = sb.table("ayarlar").select("grup,deger").execute().data or []
+        mevcut_set = {(x.get("grup"), x.get("deger")) for x in mevcut}
+
+        eksikler = [
+            item for item in DEFAULT_AYARLAR
+            if (item["grup"], item["deger"]) not in mevcut_set
+        ]
+
+        if eksikler:
+            sb.table("ayarlar").insert(eksikler).execute()
+    except Exception as e:
+        st.warning("Varsayılan ayarlar kontrol edilemedi. Supabase ayarlar policy/kolonlarını kontrol et.")
+        st.caption(str(e))
+
+
 def make_slots():
     start = datetime.combine(date.today(), time(9, 0))
     return [(start + timedelta(minutes=30*i)).strftime("%H:%M") for i in range(24)]
@@ -155,6 +211,7 @@ except Exception:
 st.markdown('<div class="clinic-title"><span>ÖZEL DENTALDE ÇAYYOLU</span><br><span>AĞIZ VE DİŞ SAĞLIĞI POLİKLİNİĞİ</span></div>', unsafe_allow_html=True)
 
 check_login()
+ensure_default_ayarlar()
 
 MENU = [
     "1 Hasta Kayıt",
