@@ -1,41 +1,8 @@
-# Dentalde Clinic Supabase App
+# Dentalde Clinic - Risk Uyarıları Eklendi
 
-## Streamlit Secrets
-
-```toml
-APP_USERNAME = "admin"
-APP_PASSWORD = "SIFREN"
-SUPABASE_URL = "https://PROJECT_ID.supabase.co"
-SUPABASE_KEY = "sb_publishable_xxxxx"
-```
-
-## Supabase
-
-Supabase SQL Editor > New query içine `supabase_schema.sql` içeriğini yapıştırıp Run bas.
-
-
-## Varsayılan Ana Ayarlar
-
-Bu sürümde aşağıdaki ana ayarlar koda sabitlenmiştir ve `ayarlar` tablosundan silinse bile app açılışında otomatik geri eklenir:
-
-- Dr.Dt. M. Enes MARAŞ
-- Dt. S. Deniz MARAŞ
-- Clinic 1
-- Clinic 2
-- Planlandı, Geldi, Tamamlandı, İptal, Ertelendi, Ödeme Alındı, Ödeme Bekliyor
-- Nakit, Kredi Kartı, Havale/EFT, Parçalı Ödeme
-- Laboratuvar, Malzeme, Kira, Personel, Fatura, Diğer
-- Laboratuvar 1
-- Gönderilecek, Gönderildi, Teslim Alındı, Hastaya Takıldı, İptal
-
-
-## Haftalık Program Çift Kayıt Düzeltmesi
-
-Bu sürümde Haftalık Program yalnızca `randevular` tablosunu gösterir.
-`hasta_islemleri` tablosu cari, tedavi planı ve laboratuvar takibi için kullanılmaya devam eder ancak takvimde ikinci kez görünmez.
-
-
-## Anamnez Risk Hatırlatıcıları
-
-Hasta kayıt ekranına kronik hastalık, kullanılan ilaç ve alerji hızlı seçimleri eklendi.
-Seçimlere göre diyabet, hipertansiyon, kan sulandırıcı, bisfosfonat, lokal anestezik alerjisi vb. için klinik uyarı verir.
+Bu sürümde:
+- Doğum tarihi 1900 - bugün aralığına alındı.
+- Yaş otomatik hesaplanır.
+- Pediatrik / geriatrik hasta uyarısı verir.
+- İşlem seçimine göre cerrahi, protez/lab, endodonti ve periodontal risk uyarıları gösterir.
+- Hasta anamnezine göre kan sulandırıcı, diyabet, bisfosfonat, onkolojik öykü, lokal anestezik ve antibiyotik alerjisi uyarıları verir.

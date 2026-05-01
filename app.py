@@ -162,6 +162,57 @@ def money(v):
     except Exception:
         return "0.00 TL"
 
+def show_islem_risk_warnings(islem_adi, kategori="", hasta_row=None):
+    """Seçilen işleme ve hasta anamnezine göre klinik risk hatırlatıcıları gösterir."""
+    islem = safe(islem_adi).lower()
+    kat = safe(kategori).lower()
+
+    kronik = safe(hasta_row.get("kronik_hastalik") if hasta_row is not None else "").lower()
+    ilac = safe(hasta_row.get("kullanilan_ilaclar") if hasta_row is not None else "").lower()
+    alerji = safe(hasta_row.get("alerji") if hasta_row is not None else "").lower()
+    anamnez = " ".join([kronik, ilac, alerji])
+
+    cerrahi_keywords = ["çekim", "implant", "cerrahi", "greft", "sinüs", "sinus", "kist", "rezeksiyon", "gömülü"]
+    protez_keywords = ["protez", "zirkonyum", "kron", "köprü", "implant üstü"]
+    endo_keywords = ["kanal", "endodonti"]
+    perio_keywords = ["detartraj", "küretaj", "periodontal", "diş taşı"]
+
+    is_cerrahi = any(k in islem for k in cerrahi_keywords) or "cerrahi" in kat
+    is_protez = any(k in islem for k in protez_keywords) or "protez" in kat
+    is_endo = any(k in islem for k in endo_keywords) or "endodonti" in kat
+    is_perio = any(k in islem for k in perio_keywords) or "periodontoloji" in kat
+
+    if is_cerrahi:
+        st.warning("🦷 Cerrahi işlem hatırlatması: kanama riski, sistemik hastalıklar, ilaç kullanımı ve iyileşme durumu işlem öncesi kontrol edilmeli.")
+        if any(k in anamnez for k in ["kan sulandırıcı", "antikoagülan", "aspirin", "antiagregan", "kanama"]):
+            st.error("🚨 Cerrahi + kanama riski: kan sulandırıcı/kanama öyküsü var. Hekim değerlendirmesi ve gerekirse konsültasyon gerekir.")
+        if any(k in anamnez for k in ["diyabet", "diabetes"]):
+            st.warning("⚠ Cerrahi + diyabet: enfeksiyon ve yara iyileşmesi açısından dikkat.")
+        if any(k in anamnez for k in ["bisfosfonat", "osteoporoz"]):
+            st.error("🚨 Cerrahi + bisfosfonat/osteoporoz ilacı: osteonekroz riski açısından dikkat.")
+        if any(k in anamnez for k in ["radyoterapi", "kemoterapi", "kanser"]):
+            st.error("🚨 Cerrahi + onkolojik öykü: RT/KT ve immünsüpresyon açısından ayrıntılı değerlendirme gerekir.")
+
+    if is_protez:
+        st.info("🧪 Protez/lab işlemi: laboratuvar takibi, prova/teslim tarihi ve lab maliyeti kontrol edilmeli.")
+        if any(k in anamnez for k in ["bruksizm", "sıkma", "gıcırdatma"]):
+            st.warning("⚠ Protez + bruksizm: materyal seçimi ve gece plağı ihtiyacı değerlendirilmeli.")
+
+    if is_endo:
+        st.info("🦷 Kanal tedavisi hatırlatması: ağrı, perküsyon hassasiyeti, radyografik bulgu ve seans takibi kontrol edilmeli.")
+        if any(k in anamnez for k in ["kalp kapağı", "endokardit"]):
+            st.warning("⚠ Endodonti + endokardit riski: profilaksi gerekliliği hekim tarafından değerlendirilmeli.")
+
+    if is_perio:
+        st.info("🪥 Periodontal işlem hatırlatması: kanama, plak kontrolü, periodontal bakım randevusu ve sistemik riskler değerlendirilmeli.")
+        if any(k in anamnez for k in ["kan sulandırıcı", "antikoagülan", "aspirin", "antiagregan", "kanama"]):
+            st.warning("⚠ Periodontal işlem + kanama riski: işlem sırasında kanama kontrolü planlanmalı.")
+
+    if any(k in anamnez for k in ["lokal anestezik"]):
+        st.error("🚨 Lokal anestezik alerjisi kayıtlı: anestezi planı işlemden önce mutlaka kontrol edilmeli.")
+    if any(k in anamnez for k in ["penisilin", "antibiyotik alerjisi"]):
+        st.warning("⚠ Antibiyotik alerjisi kayıtlı: reçete yazmadan önce kontrol et.")
+
 # ---------------- AUTH ----------------
 def check_login():
     try:
@@ -238,7 +289,23 @@ if sayfa == "1 Hasta Kayıt":
         c1, c2 = st.columns(2)
         tc = c1.text_input("T.C.")
         telefon = c2.text_input("Telefon")
-        dogum_tarihi = st.date_input("Doğum Tarihi", value=date(1990,1,1))
+        dogum_tarihi = st.date_input(
+            "Doğum Tarihi",
+            value=date(2000, 1, 1),
+            min_value=date(1900, 1, 1),
+            max_value=date.today()
+        )
+
+        yas = date.today().year - dogum_tarihi.year - (
+            (date.today().month, date.today().day) < (dogum_tarihi.month, dogum_tarihi.day)
+        )
+        st.caption(f"Yaş: {yas}")
+
+        if yas < 12:
+            st.warning("🧒 Pediyatrik hasta: doz ayarlamaları ve davranış yönetimi önemli.")
+        elif yas >= 65:
+            st.warning("👴 Geriatrik hasta: sistemik hastalıklar ve ilaç kullanımı dikkatle değerlendirilmeli.")
+
         st.markdown("### Anamnez / Risk Bilgileri")
 
         kronik_secimler = st.multiselect(
@@ -461,6 +528,8 @@ elif sayfa == "3 Randevu Ekle":
             sec = st.selectbox("İşlem", islemler["secim"].tolist())
             islem_id = int(sec.split(" | ")[0])
             info = islemler[islemler["id"] == islem_id].iloc[0]
+            hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0] if not hastalar.empty else None
+            show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
             dis_no = st.text_input("Diş No")
             ucret = st.number_input("Ücret", value=float(info.get("kdv_dahil_ucret") or 0), step=100.0)
             durum = st.selectbox("Durum", durumlar)
@@ -528,6 +597,8 @@ elif sayfa == "4 Hasta İşlemleri":
             sec = st.selectbox("İşlem", islemler["secim"].tolist())
             iid = int(sec.split(" | ")[0])
             info = islemler[islemler["id"] == iid].iloc[0]
+            hasta_row = hastalar[hastalar["hasta_adi"] == hasta].iloc[0] if not hastalar.empty else None
+            show_islem_risk_warnings(info.get("islem_adi"), info.get("kategori"), hasta_row)
             c1, c2 = st.columns(2)
             tarih = c1.date_input("Tarih", value=date.today())
             saat = c2.selectbox("Saat", [""] + make_slots())
